@@ -1,16 +1,23 @@
+"use client";
+
 import Link from "next/link";
-import { Star, LayoutDashboard, ShieldCheck } from "lucide-react";
+import { Star, LayoutDashboard, ShieldCheck, Palette } from "lucide-react";
+import { OrganizationSwitcher, UserButton } from "@clerk/nextjs";
 
 const navItems = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
+  { href: "/dashboard/vivr", label: "VIVRs", icon: Palette },
   { href: "/dashboard/star-numbers", label: "Star numbers", icon: Star },
-  { href: "/dashboard/admin", label: "Platform admin", icon: ShieldCheck },
 ];
+
+const adminNavItem = { href: "/admin/inventory/imports", label: "Platform admin", icon: ShieldCheck };
 
 export function DashboardShell({
   children,
+  isPlatformAdmin = false,
 }: Readonly<{
   children: React.ReactNode;
+  isPlatformAdmin?: boolean;
 }>) {
   return (
     <div className="flex min-h-svh w-full">
@@ -30,12 +37,36 @@ export function DashboardShell({
               {item.label}
             </Link>
           ))}
+          {isPlatformAdmin ? (
+            <Link
+              href={adminNavItem.href}
+              className="text-muted-foreground hover:bg-accent hover:text-accent-foreground flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors"
+            >
+              <adminNavItem.icon aria-hidden="true" className="size-4" />
+              {adminNavItem.label}
+            </Link>
+          ) : null}
         </nav>
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="bg-background sticky top-0 z-10 flex h-16 items-center gap-4 border-b px-6">
           <div className="font-medium">Dashboard</div>
-          <div className="text-muted-foreground ml-auto text-sm">Signed in workspace</div>
+          <div className="ml-auto flex items-center gap-4">
+            <OrganizationSwitcher
+              hidePersonal
+              afterCreateOrganizationUrl="/dashboard"
+              afterSelectOrganizationUrl="/dashboard"
+            />
+            <UserButton>
+              <UserButton.MenuItems>
+                <UserButton.Link
+                  href="/dashboard"
+                  label="Dashboard"
+                  labelIcon={<Star aria-hidden="true" className="size-4" />}
+                />
+              </UserButton.MenuItems>
+            </UserButton>
+          </div>
         </header>
         <main className="flex-1 p-6">{children}</main>
       </div>

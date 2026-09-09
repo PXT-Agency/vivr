@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Star } from "lucide-react";
+import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
 
 export default function PublicLayout({
   children,
@@ -15,12 +16,27 @@ export default function PublicLayout({
             <span>VIVR</span>
           </Link>
           <nav className="text-muted-foreground ml-auto flex items-center gap-4 text-sm">
-            <Link
-              href="/dashboard"
-              className="bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-9 items-center rounded-md px-4 text-sm font-medium transition-colors"
-            >
-              Dashboard
-            </Link>
+            <Show when="signed-out">
+              <SignInButton>
+                <button className="inline-flex h-9 items-center rounded-md px-4 text-sm font-medium transition-colors hover:text-foreground">
+                  Sign in
+                </button>
+              </SignInButton>
+              <SignUpButton>
+                <button className="bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-9 items-center rounded-md px-4 text-sm font-medium transition-colors">
+                  Sign up
+                </button>
+              </SignUpButton>
+            </Show>
+            <Show when="signed-in">
+              <Link
+                href="/dashboard"
+                className="bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-9 items-center rounded-md px-4 text-sm font-medium transition-colors"
+              >
+                Dashboard
+              </Link>
+              <UserButton />
+            </Show>
           </nav>
         </div>
       </header>

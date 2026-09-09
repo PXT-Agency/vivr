@@ -1,7 +1,11 @@
 /**
  * Data-access layer for database queries.
  *
- * Repositories are introduced in later phases once business tables exist.
- * This module keeps the directory present so data access always flows
- * through repositories rather than direct query calls in route/action code.
+ * All database access flows through these repositories; direct query calls in
+ * route/action code are avoided. Repositories accept a typed Drizzle query
+ * client (`Db`) and never expose the raw PostgreSQL client.
  */
+export * from "./organizations";
+export * from "./actors";
+export * from "./star-numbers";
+export * from "./inventory-imports";

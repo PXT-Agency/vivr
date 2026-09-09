@@ -1,13 +1,21 @@
+import { existsSync } from "node:fs";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { getDatabaseEnv } from "@/lib/env";
 import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
+
+function loadLocalEnvFile() {
+  if (typeof process.loadEnvFile !== "function") return;
+  if (!existsSync(".env.local")) return;
+  process.loadEnvFile(".env.local");
+}
 
 /**
  * Run pending Drizzle migrations against the configured database.
  * Used by the `db:migrate` script. Requires a valid DATABASE_URL.
  */
 export async function runMigrations() {
+  loadLocalEnvFile();
   const { DATABASE_URL } = getDatabaseEnv();
   const client = postgres(DATABASE_URL, { max: 1 });
   const db = drizzle(client);

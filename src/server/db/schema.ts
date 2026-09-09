@@ -1,9 +1,17 @@
 /**
  * Drizzle schema definitions.
  *
- * This module is intentionally empty during the Phase 01 foundation. Business
- * tables (star numbers, import batches, etc.) are added by later phases once
- * their invariants are defined. Keeping an empty schema here establishes the
- * pattern that all database access flows through Drizzle.
+ * Phase 03 introduced the PostgreSQL core domain model:
+ * - Tenant tables: organizations (app-side tenant mirror) and actors.
+ * - Platform catalog: star_numbers (canonical inventory).
+ * - Import lifecycle: inventory_import_batches and inventory_import_rows.
+ * - Phase 6: vivrs + vivr_versions (one-page VIVR builder).
+ *
+ * The star-number catalog and import tables are platform-level (not
+ * tenant-owned); tenant context is added by future ownership tables.
  */
-export {};
+export * from "./schema/organizations";
+export * from "./schema/actors";
+export * from "./schema/star-numbers";
+export * from "./schema/inventory-imports";
+export * from "./schema/vivrs";
