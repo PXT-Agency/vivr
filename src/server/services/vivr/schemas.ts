@@ -41,7 +41,10 @@ export const vivrTitleSchema = z
 export const vivrDescriptionSchema = z
   .string()
   .trim()
-  .max(VIVR_DESCRIPTION_MAX_LENGTH, `Description must be ${VIVR_DESCRIPTION_MAX_LENGTH} characters or fewer.`)
+  .max(
+    VIVR_DESCRIPTION_MAX_LENGTH,
+    `Description must be ${VIVR_DESCRIPTION_MAX_LENGTH} characters or fewer.`,
+  )
   .default("");
 
 export const vivrBrandColorSchema = z
@@ -148,11 +151,10 @@ const formConfigSchema = z
       )
       .min(1, "Add at least one form field.")
       .max(12, "At most 12 form fields."),
-    submitAction: z
-      .discriminatedUnion("kind", [
-        z.object({ kind: z.literal("mailto"), email: z.string().email().max(120) }).strict(),
-        z.object({ kind: z.literal("external"), url: httpUrlSchema }).strict(),
-      ]),
+    submitAction: z.discriminatedUnion("kind", [
+      z.object({ kind: z.literal("mailto"), email: z.string().email().max(120) }).strict(),
+      z.object({ kind: z.literal("external"), url: httpUrlSchema }).strict(),
+    ]),
   })
   .strict();
 
@@ -194,7 +196,10 @@ export const vivrBlockSchema = z
       .string()
       .trim()
       .min(1, "Block label is required.")
-      .max(VIVR_BLOCK_TITLE_MAX_LENGTH, `Block label must be ${VIVR_BLOCK_TITLE_MAX_LENGTH} characters or fewer.`),
+      .max(
+        VIVR_BLOCK_TITLE_MAX_LENGTH,
+        `Block label must be ${VIVR_BLOCK_TITLE_MAX_LENGTH} characters or fewer.`,
+      ),
     config: z.unknown(),
   })
   .superRefine((block, ctx) => {
@@ -241,17 +246,16 @@ export const vivrConfigSchema = z
     schemaVersion: z.literal(VIVR_SCHEMA_VERSION),
     profile: z
       .object({
-        name: z
-          .string()
-          .trim()
-          .min(1, "VIVR name is required.")
-          .max(VIVR_TITLE_MAX_LENGTH),
+        name: z.string().trim().min(1, "VIVR name is required.").max(VIVR_TITLE_MAX_LENGTH),
         description: z.string().max(VIVR_DESCRIPTION_MAX_LENGTH).default(""),
       })
       .strict(),
     theme: z
       .object({
-        primary: z.string().trim().regex(/^#[0-9a-fA-F]{6}$/),
+        primary: z
+          .string()
+          .trim()
+          .regex(/^#[0-9a-fA-F]{6}$/),
         mode: z.enum(VIVR_THEME_MODES),
         logoImageUrl: vivrImageUrlSchema,
         coverImageUrl: vivrImageUrlSchema,
@@ -259,7 +263,21 @@ export const vivrConfigSchema = z
       .strict(),
     blocks: z.array(vivrBlockSchema).max(VIVR_BLOCKS_MAX),
   })
-  .strict();
+  .strict()
+  .superRefine((config, ctx) => {
+    const seen = new Set<string>();
+    for (const [index, block] of config.blocks.entries()) {
+      if (seen.has(block.id)) {
+        ctx.addIssue({
+          code: "custom",
+          message: `Duplicate block id: ${block.id}`,
+          path: ["blocks", index, "id"],
+        });
+      } else {
+        seen.add(block.id);
+      }
+    }
+  });
 
 export function parseVivrConfig(value: unknown): VivrConfig {
   return vivrConfigSchema.parse(value) as VivrConfig;
@@ -320,6 +338,6 @@ export function rebaseDraftConfig(
   };
 }
 
-export function isVivrConfig(value: unknown): boolean {
-  return isVivrConfig;
+export function isVivrConfig(value: unknown): value is VivrConfig {
+  return vivrConfigSchema.safeParse(value).success;
 }

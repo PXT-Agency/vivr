@@ -39,7 +39,12 @@ afterAll(async () => {
 });
 
 function linkBlock(overrides: Record<string, unknown> = {}) {
-  return { type: "link", title: "Hotline", config: { url: "https://example.com/hotline" }, ...overrides };
+  return {
+    type: "link",
+    title: "Hotline",
+    config: { url: "https://example.com/hotline" },
+    ...overrides,
+  };
 }
 
 describe("VivrService", () => {
@@ -67,6 +72,30 @@ describe("VivrService", () => {
     await expect(
       vivrService.createVivr("org_vivr_test", { title: "B", slug: "same-slug" }),
     ).rejects.toThrow(/already taken/i);
+  });
+
+  it("seeds template blocks and brand color on create", async () => {
+    const { vivr, draft } = await vivrService.createVivr("org_vivr_test", {
+      title: "Emergency",
+      slug: "template-seeded",
+      template: "emergency_response",
+    });
+
+    expect(vivr.brandColor).toBe("#b91c1c");
+    const config = parseVivrConfig(draft.configJson);
+    expect(config.blocks.length).toBe(5);
+    expect(config.blocks[0].type).toBe("alert");
+    expect(config.blocks.some((block) => block.type === "call")).toBe(true);
+  });
+
+  it("rejects unknown template keys", async () => {
+    await expect(
+      vivrService.createVivr("org_vivr_test", {
+        title: "Bad Template",
+        slug: "bad-template",
+        template: "nope",
+      }),
+    ).rejects.toThrow(/unknown template/i);
   });
 
   it("adds, edits, reorders, duplicates and toggles blocks", async () => {
@@ -151,9 +180,22 @@ describe("VivrService", () => {
     expect(config.theme.mode).toBe("dark");
     expect(config.blocks).toHaveLength(1);
 
+    // Another VIVR taking the freed slug must not be possible for this one;
+    // re-claiming a slug now owned by a different VIVR is rejected.
+    await vivrService.createVivr("org_vivr_test", {
+      title: "Other",
+      slug: "other-vivr",
+    });
     await expect(
-      vivrService.updateCoreProperties("org_vivr_test", vivr.id, { slug: "old-slug" }),
+      vivrService.updateCoreProperties("org_vivr_test", vivr.id, {
+        slug: "other-vivr",
+      }),
     ).rejects.toThrow(/already taken/i);
+
+    // Reverting to a slug still owned by the same VIVR is allowed.
+    await vivrService.updateCoreProperties("org_vivr_test", vivr.id, {
+      slug: "new-slug",
+    });
   });
 
   it("publishes atomically: draft keeps editing, published version is immutable", async () => {
@@ -220,13 +262,11 @@ describe("VivrService", () => {
       slug: "ours",
     });
 
-    await expect(
-      vivrService.addBlock("org_other", vivr.id, linkBlock()),
-    ).rejects.toThrow(/not found/i);
+    await expect(vivrService.addBlock("org_other", vivr.id, linkBlock())).rejects.toThrow(
+      /not found/i,
+    );
 
-    await expect(
-      vivrService.publish("org_other", vivr.id, actorId),
-    ).rejects.toThrow();
+    await expect(vivrService.publish("org_other", vivr.id, actorId)).rejects.toThrow();
   });
 });
 

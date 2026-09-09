@@ -79,9 +79,7 @@ export function withBlockEnabled(
   if (index === -1) {
     throw new Error(`Block ${blockId} not found.`);
   }
-  return blocks.map((candidate, i) =>
-    i === index ? { ...candidate, enabled } : candidate,
-  );
+  return blocks.map((candidate, i) => (i === index ? { ...candidate, enabled } : candidate));
 }
 
 export function createBlockId(): string {

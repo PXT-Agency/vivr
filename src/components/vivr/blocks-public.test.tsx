@@ -95,7 +95,7 @@ describe("VivrPublicPage", () => {
     expect(html).toContain("Report an issue");
     expect(html).toContain("Your name");
     expect(html).toContain("Submit");
-    expect(html).toContain("isn&apos;t available yet");
+    expect(html).toContain("isn&#x27;t available yet");
   });
 
   it("escapes user-authored strings (no raw HTML injection)", () => {

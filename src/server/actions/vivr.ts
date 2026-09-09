@@ -68,6 +68,7 @@ export async function createVivr(formData: FormData): Promise<ActionResult> {
         themeMode: valueOf(formData, "themeMode") || undefined,
         logoImageUrl: valueOf(formData, "logoImageUrl") || undefined,
         coverImageUrl: valueOf(formData, "coverImageUrl") || undefined,
+        template: valueOf(formData, "template") || undefined,
       });
       revalidatePath("/dashboard/vivr");
       return { ok: true, vivrId: created.vivr.id };
@@ -137,10 +138,7 @@ export async function updateBlock(
   }
 }
 
-export async function removeBlock(
-  vivrId: string,
-  blockId: string,
-): Promise<ActionResult> {
+export async function removeBlock(vivrId: string, blockId: string): Promise<ActionResult> {
   try {
     const context = await requireEditorContext();
     await withDatabase(async (db) => {
@@ -172,10 +170,7 @@ export async function moveBlock(
   }
 }
 
-export async function duplicateBlock(
-  vivrId: string,
-  blockId: string,
-): Promise<ActionResult> {
+export async function duplicateBlock(vivrId: string, blockId: string): Promise<ActionResult> {
   try {
     const context = await requireEditorContext();
     await withDatabase(async (db) => {
@@ -225,10 +220,7 @@ export async function publishVivr(vivrId: string): Promise<ActionResult> {
   }
 }
 
-export async function rollbackVivr(
-  vivrId: string,
-  versionId: string,
-): Promise<ActionResult> {
+export async function rollbackVivr(vivrId: string, versionId: string): Promise<ActionResult> {
   try {
     const context = await requireEditorContext();
     await withDatabase(async (db) => {

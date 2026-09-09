@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   check,
   index,
   integer,
@@ -11,11 +12,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-import {
-  VIVR_DEFAULT_BRAND_COLOR,
-  VIVR_STATUSES,
-  VIVR_THEME_MODES,
-} from "@/config/vivr";
+import { VIVR_DEFAULT_BRAND_COLOR, VIVR_STATUSES, VIVR_THEME_MODES } from "@/config/vivr";
 import type { VivrConfig } from "@/types/vivr";
 import { actors } from "./actors";
 import { organizations } from "./organizations";
@@ -62,10 +59,10 @@ export const vivrs = pgTable(
     logoImageUrl: text("logo_image_url"),
     coverImageUrl: text("cover_image_url"),
     currentDraftVersionId: uuid("current_draft_version_id").references(
-      () => vivrVersions.id,
+      (): AnyPgColumn => vivrVersions.id,
     ),
     currentPublishedVersionId: uuid("current_published_version_id").references(
-      () => vivrVersions.id,
+      (): AnyPgColumn => vivrVersions.id,
     ),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -75,10 +72,7 @@ export const vivrs = pgTable(
     index("vivrs_organization_idx").on(table.organizationId),
     index("vivrs_status_idx").on(table.status),
     index("vivrs_organization_status_idx").on(table.organizationId, table.status),
-    check(
-      "vivrs_slug_check",
-      sql`${table.slug} ~ '^[a-z0-9]+(-[a-z0-9]+)*$'`,
-    ),
+    check("vivrs_slug_check", sql`${table.slug} ~ '^[a-z0-9]+(-[a-z0-9]+)*$'`),
     check(
       "vivrs_status_check",
       sql`${table.status} IN (${sql.raw(VIVR_STATUSES.map((status) => `'${status}'`).join(", "))})`,
@@ -87,10 +81,7 @@ export const vivrs = pgTable(
       "vivrs_theme_mode_check",
       sql`${table.themeMode} IN (${sql.raw(VIVR_THEME_MODES.map((mode) => `'${mode}'`).join(", "))})`,
     ),
-    check(
-      "vivrs_brand_color_check",
-      sql`${table.brandColor} ~ '^#[0-9a-fA-F]{6}$'`,
-    ),
+    check("vivrs_brand_color_check", sql`${table.brandColor} ~ '^#[0-9a-fA-F]{6}$'`),
   ],
 );
 
@@ -100,7 +91,7 @@ export const vivrVersions = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     vivrId: uuid("vivr_id")
       .notNull()
-      .references(() => vivrs.id),
+      .references((): AnyPgColumn => vivrs.id),
     /**
      * Monotonically increasing per-VIVR version number. The current published
      * version is selected by the `vivrs.current_published_version_id` pointer,
@@ -122,10 +113,7 @@ export const vivrVersions = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    uniqueIndex("vivr_versions_vivr_sequence_unique").on(
-      table.vivrId,
-      table.sequence,
-    ),
+    uniqueIndex("vivr_versions_vivr_sequence_unique").on(table.vivrId, table.sequence),
     uniqueIndex("vivr_versions_one_draft")
       .on(table.vivrId)
       .where(sql`${table.publishedAt} IS NULL`),

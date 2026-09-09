@@ -1,6 +1,8 @@
 import type { JsonValue } from "./index";
 import type { VivrBlockType } from "@/config/vivr";
 
+export type { VivrBlockType };
+
 /**
  * A single ordered block on a one-page VIVR (docs/03 conceptual JSON, docs/04
  * action contracts). `config` shape is validated per `type` by the block

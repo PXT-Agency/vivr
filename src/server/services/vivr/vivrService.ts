@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import {
   isVivrSupportedBlockType,
+  normalizeVivrSlug,
   VIVR_BLOCK_TITLE_MAX_LENGTH,
   VIVR_BLOCK_TYPES,
   VIVR_DEFAULT_BRAND_COLOR,
@@ -21,11 +22,11 @@ import {
   rebaseDraftConfig,
   vivrBrandColorSchema,
   vivrDescriptionSchema,
-  vivrImageUrlSchema,
   vivrSlugSchema,
   vivrThemeModeSchema,
   vivrTitleSchema,
 } from "./schemas";
+import { getVivrTemplate } from "./templates";
 import {
   withBlockAppended,
   withBlockDuplicated,
@@ -45,25 +46,30 @@ const nullableImageUrlSchema = z.preprocess(
   z.string().trim().url("Image URL must be a valid URL.").max(512, "Image URL is too long."),
 );
 
-export const vivrCreateInputSchema = z.object({
-  title: vivrTitleSchema,
-  slug: vivrSlugSchema,
-  description: vivrDescriptionSchema,
-  brandColor: vivrBrandColorSchema.optional(),
-  themeMode: vivrThemeModeSchema.optional(),
-  logoImageUrl: nullableImageUrlSchema.optional(),
-  coverImageUrl: nullableImageUrlSchema.optional(),
-}).strict();
+export const vivrCreateInputSchema = z
+  .object({
+    title: vivrTitleSchema,
+    slug: vivrSlugSchema,
+    description: vivrDescriptionSchema,
+    brandColor: vivrBrandColorSchema.optional(),
+    themeMode: vivrThemeModeSchema.optional(),
+    logoImageUrl: nullableImageUrlSchema.optional(),
+    coverImageUrl: nullableImageUrlSchema.optional(),
+    template: z.string().trim().optional(),
+  })
+  .strict();
 
-export const vivrUpdatePropertiesInputSchema = z.object({
-  title: vivrTitleSchema.optional(),
-  slug: vivrSlugSchema.optional(),
-  description: vivrDescriptionSchema.optional(),
-  brandColor: vivrBrandColorSchema.optional(),
-  themeMode: vivrThemeModeSchema.optional(),
-  logoImageUrl: nullableImageUrlSchema.optional(),
-  coverImageUrl: nullableImageUrlSchema.optional(),
-}).strict();
+export const vivrUpdatePropertiesInputSchema = z
+  .object({
+    title: vivrTitleSchema.optional(),
+    slug: vivrSlugSchema.optional(),
+    description: vivrDescriptionSchema.optional(),
+    brandColor: vivrBrandColorSchema.optional(),
+    themeMode: vivrThemeModeSchema.optional(),
+    logoImageUrl: nullableImageUrlSchema.optional(),
+    coverImageUrl: nullableImageUrlSchema.optional(),
+  })
+  .strict();
 
 const blockTitleSchema = z
   .string()
@@ -108,25 +114,53 @@ export class VivrService {
   constructor(private readonly deps: VivrServiceDeps) {}
 
   async createVivr(organizationId: OrganizationId, input: unknown) {
-    const parsed = vivrCreateInputSchema.parse(input);
+    const inputRecord =
+      typeof input === "object" && input !== null ? { ...(input as Record<string, unknown>) } : {};
+    if (typeof inputRecord.slug === "string") {
+      inputRecord.slug = normalizeVivrSlug(inputRecord.slug);
+    }
+    const parsed = vivrCreateInputSchema.parse(inputRecord);
     const slug = parsed.slug;
-    const normalizedSlug = slug.toLowerCase().trim();
 
-    const dup = await this.deps.vivrs.findBySlug(normalizedSlug);
+    const template =
+      parsed.template && parsed.template !== "" ? getVivrTemplate(parsed.template) : null;
+    if (parsed.template && parsed.template !== "" && !template) {
+      throw new Error("Unknown template.");
+    }
+
+    const dup = await this.deps.vivrs.findBySlug(slug);
     if (dup) {
       throw new Error(`The public URL "${slug}" is already taken by another VIVR.`);
     }
 
-    return this.deps.vivrs.createWithDraft({
+    const created = await this.deps.vivrs.createWithDraft({
       organizationId,
-      slug: normalizedSlug,
+      slug,
       title: parsed.title,
       description: parsed.description,
-      brandColor: parsed.brandColor ?? VIVR_DEFAULT_BRAND_COLOR,
+      brandColor: parsed.brandColor ?? template?.brandColor ?? VIVR_DEFAULT_BRAND_COLOR,
       themeMode: parsed.themeMode ?? "light",
       logoImageUrl: parsed.logoImageUrl ?? null,
       coverImageUrl: parsed.coverImageUrl ?? null,
     });
+
+    if (template) {
+      for (const block of template.blocks) {
+        await this.addBlock(organizationId, created.vivr.id, {
+          type: block.type,
+          title: block.title,
+          config: block.config,
+        });
+      }
+      const reloaded = await this.deps.vivrs.findByIdForOrganization(
+        created.vivr.id,
+        organizationId,
+      );
+      const draft = await this.deps.versions.requireDraft(created.vivr.id, organizationId);
+      return { vivr: reloaded ?? created.vivr, draft };
+    }
+
+    return created;
   }
 
   async updateCoreProperties(organizationId: OrganizationId, vivrId: string, input: unknown) {
@@ -140,7 +174,7 @@ export class VivrService {
       parsed.slug = normalizedSlug;
     }
 
-    const updated = await this.deps.vivrs.updateProperties(organizationId, vivrId, parsed);
+    const updated = await this.deps.vivrs.updateProperties(vivrId, organizationId, parsed);
     if (!updated) {
       throw new Error("VIVR not found in this organization.");
     }
@@ -152,7 +186,7 @@ export class VivrService {
     const config = parseVivrConfig(draft.configJson);
     const rebased = rebaseDraftConfig(config, {
       title: parsed.title ?? config.profile.name,
-      description: parsed.description ?? (config.profile.description ?? ""),
+      description: parsed.description ?? config.profile.description ?? "",
       brandColor: parsed.brandColor ?? config.theme.primary,
       themeMode: parsed.themeMode ?? config.theme.mode,
       logoImageUrl: parsed.logoImageUrl ?? null,
@@ -258,14 +292,17 @@ export class VivrService {
     if (validated.blocks.length === 0) {
       throw new Error("Add at least one block before publishing.");
     }
-    return this.deps.vivrs.publishFromDraft(organizationId, vivrId, publisherActorId);
+    return this.deps.vivrs.publishFromDraft(vivrId, organizationId, publisherActorId);
   }
 
   async rollback(organizationId: OrganizationId, vivrId: string, versionId: string) {
-    return this.deps.vivrs.rollbackToVersion(organizationId, vivrId, versionId);
+    return this.deps.vivrs.rollbackToVersion(vivrId, organizationId, versionId);
   }
 
-  private async loadDraftConfig(organizationId: OrganizationId, vivrId: string): Promise<VivrConfig> {
+  private async loadDraftConfig(
+    organizationId: OrganizationId,
+    vivrId: string,
+  ): Promise<VivrConfig> {
     const draft = await this.deps.versions.requireDraft(vivrId, organizationId);
     if (draft.publishedAt) {
       throw new Error("Published VIVR versions are immutable.");
@@ -279,7 +316,7 @@ export class VivrService {
     config: VivrConfig,
   ): Promise<void> {
     const validated = parseVivrConfig(config);
-    await this.deps.versions.updateDraftConfig(organizationId, vivrId, validated);
+    await this.deps.versions.updateDraftConfig(vivrId, organizationId, validated);
   }
 }
 

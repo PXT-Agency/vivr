@@ -466,3 +466,99 @@
 - Database deployment target (local Postgres vs. managed provider).
 - Whether the expected inventory range `0001`–`2000` is finalized.
 - Customer-facing star-number presentation and pricing (Phase 6+).
+
+---
+
+## Phase 6 — One-Page VIVR Builder (2026-09-09)
+
+**Status:** Complete.
+
+### Scope delivered
+
+- **Schema** — `src/server/db/schema/vivrs.ts`: `vivrs` (tenant-owned; slug,
+  title, description, status, brand color, theme mode, logo/cover URLs, draft
+  + published version pointers) and `vivr_versions` (per-VIVR sequence,
+  `config_json` snapshot, `published_at`, `published_by_id`; partial unique
+  index guarantees exactly one draft per VIVR). Migration `0001_watery_klaw.sql`
+  applied to `vivr_dev` and `vivr_test`. Circular `vivrs ↔ vivr_versions`
+  references typed via `AnyPgColumn`.
+- **Config model** — `src/config/vivr.ts`: all 18 documented block types
+  registered; 10 supported in the builder this phase (link, call, whatsapp,
+  sms, website, map, file, alert, social, form); deferred types validate
+  structurally so stored drafts never break. Slug/title/description limits,
+  brand-color and slug patterns, `normalizeVivrSlug`.
+- **Validation** — `src/server/services/vivr/schemas.ts`: Zod schemas per block
+  config type (action contracts, docs/04 Step 3), full `parseVivrConfig` with
+  duplicate-block-id rejection, `buildInitialDraftConfig`, `rebaseDraftConfig`,
+  fixed `isVivrConfig` guard.
+- **Repositories** — `vivrs.ts` (create-with-draft, tenant-scoped finders,
+  slug uniqueness, `updateProperties`, `publishFromDraft` and
+  `rollbackToVersion` as single transactions — publish is atomic, rollback
+  only moves the live pointer, published versions immutable),
+  `vivr-versions.ts` (tenant-scoped draft/version reads, draft-only writes).
+- **Service** — `vivrService.ts`: create, update core properties (rebases the
+  draft snapshot so columns and JSON never diverge), add/update/remove/move/
+  duplicate/toggle blocks (pure ops in `blocks.ts`), publish (validates the
+  whole config first; requires ≥1 block), rollback. Fixed swapped-argument
+  bugs in `saveDraftConfig`/`updateProperties`/`publishFromDraft`/`rollback`
+  and slug normalization before validation.
+- **Server actions** — `src/server/actions/vivr.ts`: all mutations gated on
+  `org:editor`/`org:admin`; organization always session-derived; `ActionResult`
+  objects; path revalidation.
+- **Dashboard UI** — `/dashboard/vivr` list (draft/published sequence badges,
+  public URL), `/dashboard/vivr/new` setup form with template picker,
+  `/dashboard/vivr/[vivrId]` builder: core properties form, block list with
+  keyboard-accessible reorder (up/down buttons), enable/disable, duplicate,
+  delete-with-confirmation, per-type block config editor, publish card, and
+  version history with rollback. `org:member` gets a read-only builder.
+  Preview rail renders the draft through `VivrPublicPage` — the same component
+  the Phase 7 public runtime will use — so preview equals public rendering.
+- **Templates** — `src/server/services/vivr/templates.ts`: five seed templates
+  (Emergency Response, Government Services, Hospital/Health, Corporate Contact
+  Center, Utility/Service Outage) using only supported block types; seeded
+  through the normal `addBlock` path so every block is Zod-validated.
+- **DB restore note** — the local Postgres instance had lost both `vivr_dev`
+  and `vivr_test` schemas (instance reinstall); migrations re-applied to both,
+  `vivr_test` recreated. Test suite unblocked.
+
+### Tests
+
+- `schemas.test.ts` (8), `templates.test.ts` (4),
+  `vivrService.integration.test.ts` (10 — create/dup-slug/template seed/unknown
+  template/blocks lifecycle/invalid configs/rebase/publish atomicity/rollback/
+  tenant scoping), `blocks-public.test.tsx` (5).
+- Fixed a test expectation bug: reverting a VIVR's slug to one still owned by
+  the same VIVR is allowed; only slugs owned by another VIVR are rejected.
+
+### Verification results
+
+| Command          | Result |
+| ---------------- | ------ |
+| `pnpm test`      | PASS — 26 files, 187 tests |
+| `pnpm lint`      | PASS |
+| `pnpm typecheck` | PASS |
+| `pnpm build`     | PASS — routes added: `/dashboard/vivr`, `/dashboard/vivr/new`, `/dashboard/vivr/[vivrId]` |
+
+### Notes and limitations
+
+- Star-number association (docs/04 Step 1) intentionally deferred: it needs the
+  ownership/reservation model from later phases (documented in schema module).
+- Deferred block types (emergency report, weather, flood map, shelter finder,
+  safety guide, payment, voice agent, contact directory) render a
+  "not available yet" placeholder; old drafts with those types still validate.
+- No drag-and-drop reorder; keyboard-accessible up/down buttons satisfy the
+  docs/04 a11y requirement. Full DnD can layer on later.
+- Autosave is effectively immediate persistence per action (every mutation
+  saves the draft server-side); no debounced local draft buffer.
+- Undo/redo not implemented ("where practical" per docs/04); version history +
+  rollback cover the published surface.
+- Public `/v/[slug]` runtime is Phase 7; `publicUrl` values are shown but not
+  yet routable.
+- Templates seed placeholder values (example.com, +254…) the customer must
+  edit before publishing.
+
+### Open decisions carried forward
+
+- Database deployment target (local Postgres vs. managed provider).
+- Whether the expected inventory range `0001`–`2000` is finalized.
+- Customer-facing star-number presentation and pricing (Phase 7+).

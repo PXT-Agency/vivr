@@ -7,13 +7,7 @@ import Link from "next/link";
 import { createVivr } from "@/server/actions/vivr";
 import { VIVR_DEFAULT_BRAND_COLOR, VIVR_THEME_MODES } from "@/config/vivr";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   ColorField,
   Field,
@@ -22,6 +16,15 @@ import {
   TextAreaField,
   TextField,
 } from "@/components/vivr/form-controls";
+import { VIVR_TEMPLATE_KEYS, vivrTemplates } from "@/server/services/vivr/templates";
+
+const templateOptions = [
+  { value: "", label: "Start from scratch" },
+  ...VIVR_TEMPLATE_KEYS.map((key) => ({
+    value: key,
+    label: vivrTemplates[key].label,
+  })),
+];
 
 export function NewVivrForm({ orgName }: { orgName?: string }) {
   const router = useRouter();
@@ -64,6 +67,9 @@ export function NewVivrForm({ orgName }: { orgName?: string }) {
         </CardHeader>
         <CardContent>
           <form onSubmit={onSubmit} className="flex flex-col gap-4">
+            <Field label="Template" hint="Pre-fills blocks you can edit or remove.">
+              <SelectField name="template" defaultValue="" options={templateOptions} />
+            </Field>
             <Field label="Name" hint="Shown as the page title to callers.">
               <TextField name="title" placeholder="Nakuru County Emergency Response" required />
             </Field>

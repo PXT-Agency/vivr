@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 
-import { getVivrList } from "@/server/dashboard/vivr";
-import { requireOrganization } from "@/server/dashboard/auth";
+import { AuthContextError, requireOrganization } from "@/server/auth";
 import { NewVivrForm } from "@/components/vivr/new-vivr-form";
 import { OrganizationEmptyState } from "@/components/dashboard/organization-empty-state";
 
@@ -12,10 +11,21 @@ export const metadata: Metadata = {
 };
 
 export default async function NewVivrPage() {
-  const org = await requireOrganization();
-  const listing = await getVivrList();
-  if (!listing) {
+  const hasOrganization = await hasActiveOrganization();
+  if (!hasOrganization) {
     return <OrganizationEmptyState />;
   }
-  return <NewVivrForm orgName={org.name} />;
+  return <NewVivrForm />;
+}
+
+async function hasActiveOrganization(): Promise<boolean> {
+  try {
+    await requireOrganization();
+    return true;
+  } catch (error) {
+    if (error instanceof AuthContextError && error.code === "missing_organization") {
+      return false;
+    }
+    throw error;
+  }
 }

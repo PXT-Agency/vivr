@@ -215,9 +215,7 @@ export function BlockConfigEditor({
 
     default:
       return (
-        <p className="text-muted-foreground text-sm">
-          This block type isn’t configurable yet.
-        </p>
+        <p className="text-muted-foreground text-sm">This block type isn’t configurable yet.</p>
       );
   }
 }
@@ -354,7 +352,7 @@ function FormEditor({
                 <Trash2 aria-hidden="true" className="size-4" />
               </Button>
             </div>
-            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <label className="text-muted-foreground flex items-center gap-2 text-xs">
               <input
                 type="checkbox"
                 checked={field.required === true}
@@ -420,11 +418,20 @@ function FormEditor({
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
   return (
     <label className="flex flex-col gap-1.5 text-sm">
       <span className="text-foreground text-xs font-medium">{label}</span>
       {children}
+      {hint ? <span className="text-muted-foreground text-xs">{hint}</span> : null}
     </label>
   );
 }

@@ -126,11 +126,7 @@ export class VivrRepository {
   }
 
   async findBySlug(slug: string): Promise<VivrRow | null> {
-    const [row] = await this.db
-      .select()
-      .from(vivrs)
-      .where(eq(vivrs.slug, slug))
-      .limit(1);
+    const [row] = await this.db.select().from(vivrs).where(eq(vivrs.slug, slug)).limit(1);
     return row ?? null;
   }
 
@@ -156,10 +152,7 @@ export class VivrRepository {
       })
       .from(vivrs)
       .leftJoin(draftVersion, eq(vivrs.currentDraftVersionId, draftVersion.id))
-      .leftJoin(
-        publishedVersion,
-        eq(vivrs.currentPublishedVersionId, publishedVersion.id),
-      )
+      .leftJoin(publishedVersion, eq(vivrs.currentPublishedVersionId, publishedVersion.id))
       .where(eq(vivrs.organizationId, organizationId))
       .orderBy(desc(vivrs.updatedAt));
     return rows.map((row) => ({
@@ -239,9 +232,7 @@ export class VivrRepository {
       const [draft] = await tx
         .select()
         .from(vivrVersions)
-        .where(
-          and(eq(vivrVersions.vivrId, vivrId), sql`${vivrVersions.publishedAt} IS NULL`),
-        )
+        .where(and(eq(vivrVersions.vivrId, vivrId), sql`${vivrVersions.publishedAt} IS NULL`))
         .limit(1);
       if (!draft) {
         throw new Error(`No draft version exists to publish for vivr ${vivrId}`);
@@ -345,5 +336,3 @@ export type VivrsRepository = VivrRepository;
 export function createVivrRepository(db: Db): VivrsRepository {
   return new VivrRepository(db);
 }
-
-export type { VivrRow, VivrListRow };

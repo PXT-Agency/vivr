@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import type { VivrBlockType } from "@/config/vivr";
-import { buildInitialDraftConfig, parseVivrBlock, parseVivrConfig, rebaseDraftConfig } from "@/server/services/vivr/schemas";
+import type { VivrBlock } from "@/types/vivr";
+import {
+  buildInitialDraftConfig,
+  parseVivrBlock,
+  parseVivrConfig,
+  rebaseDraftConfig,
+} from "@/server/services/vivr/schemas";
 
-function validLinkBlock(overrides: Record<string, unknown> = {}) {
+function validLinkBlock(overrides: Partial<VivrBlock> = {}): VivrBlock {
   return {
     id: "block_link",
     type: "link",
