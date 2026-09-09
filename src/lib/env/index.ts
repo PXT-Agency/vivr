@@ -1,7 +1,8 @@
-import { appEnvSchema, databaseEnvSchema } from "./schemas";
+import { appEnvSchema, authEnvSchema, databaseEnvSchema } from "./schemas";
 
 export type AppEnv = ReturnType<typeof appEnvSchema.parse>;
 export type DatabaseEnv = ReturnType<typeof databaseEnvSchema.parse>;
+export type AuthEnv = ReturnType<typeof authEnvSchema.parse>;
 
 /**
  * Environment validation error. Thrown when required environment variables are
@@ -47,6 +48,21 @@ export function getDatabaseEnv(
   overrides: Record<string, string | undefined> = process.env,
 ): DatabaseEnv {
   const result = databaseEnvSchema.safeParse(overrides);
+  if (!result.success) {
+    throw new EnvironmentValidationError(asIssues(result.error));
+  }
+  return result.data;
+}
+
+/**
+ * Parse the Better Auth server environment. Required before creating the
+ * auth instance. Throws EnvironmentValidationError when BETTER_AUTH_SECRET
+ * is absent so the failure is loud and safe (never a silently insecure boot).
+ */
+export function getAuthEnv(
+  overrides: Record<string, string | undefined> = process.env,
+): AuthEnv {
+  const result = authEnvSchema.safeParse(overrides);
   if (!result.success) {
     throw new EnvironmentValidationError(asIssues(result.error));
   }

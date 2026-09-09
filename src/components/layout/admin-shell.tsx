@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { Star, ShieldCheck, ArrowLeft } from "lucide-react";
-import { OrganizationSwitcher, UserButton } from "@clerk/nextjs";
+import { ShieldCheck, ArrowLeft } from "lucide-react";
+
+import { OrganizationSwitcher } from "@/components/auth/organization-switcher";
+import { SignOutButton } from "@/components/auth/sign-out-button";
 
 const navItems = [
   { href: "/admin/inventory/imports", label: "Import batches", icon: ShieldCheck },
@@ -11,8 +13,10 @@ const navItems = [
 
 export function AdminShell({
   children,
+  userName,
 }: Readonly<{
   children: React.ReactNode;
+  userName?: string | null;
 }>) {
   return (
     <div className="flex min-h-svh w-full">
@@ -37,21 +41,14 @@ export function AdminShell({
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="bg-background sticky top-0 z-10 flex h-16 items-center gap-4 border-b px-6">
           <div className="font-medium">Platform inventory</div>
-          <div className="ml-auto flex items-center gap-4">
-            <OrganizationSwitcher
-              hidePersonal
-              afterCreateOrganizationUrl="/admin/inventory/imports"
-              afterSelectOrganizationUrl="/admin/inventory/imports"
-            />
-            <UserButton>
-              <UserButton.MenuItems>
-                <UserButton.Link
-                  href="/admin/inventory/imports"
-                  label="Import batches"
-                  labelIcon={<Star aria-hidden="true" className="size-4" />}
-                />
-              </UserButton.MenuItems>
-            </UserButton>
+          <div className="relative ml-auto flex items-center gap-4">
+            <OrganizationSwitcher redirectTo="/admin/inventory/imports" />
+            {userName ? (
+              <span className="text-muted-foreground max-w-40 truncate text-sm" title={userName}>
+                {userName}
+              </span>
+            ) : null}
+            <SignOutButton />
           </div>
         </header>
         <main className="flex-1 p-6">{children}</main>

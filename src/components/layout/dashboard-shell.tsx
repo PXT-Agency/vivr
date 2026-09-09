@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { Star, LayoutDashboard, ShieldCheck, Palette } from "lucide-react";
-import { OrganizationSwitcher, UserButton } from "@clerk/nextjs";
+
+import { OrganizationSwitcher } from "@/components/auth/organization-switcher";
+import { SignOutButton } from "@/components/auth/sign-out-button";
 
 const navItems = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
@@ -15,9 +17,11 @@ const adminNavItem = { href: "/admin/inventory/imports", label: "Platform admin"
 export function DashboardShell({
   children,
   isPlatformAdmin = false,
+  userName,
 }: Readonly<{
   children: React.ReactNode;
   isPlatformAdmin?: boolean;
+  userName?: string | null;
 }>) {
   return (
     <div className="flex min-h-svh w-full">
@@ -51,21 +55,14 @@ export function DashboardShell({
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="bg-background sticky top-0 z-10 flex h-16 items-center gap-4 border-b px-6">
           <div className="font-medium">Dashboard</div>
-          <div className="ml-auto flex items-center gap-4">
-            <OrganizationSwitcher
-              hidePersonal
-              afterCreateOrganizationUrl="/dashboard"
-              afterSelectOrganizationUrl="/dashboard"
-            />
-            <UserButton>
-              <UserButton.MenuItems>
-                <UserButton.Link
-                  href="/dashboard"
-                  label="Dashboard"
-                  labelIcon={<Star aria-hidden="true" className="size-4" />}
-                />
-              </UserButton.MenuItems>
-            </UserButton>
+          <div className="relative ml-auto flex items-center gap-4">
+            <OrganizationSwitcher redirectTo="/dashboard" />
+            {userName ? (
+              <span className="text-muted-foreground max-w-40 truncate text-sm" title={userName}>
+                {userName}
+              </span>
+            ) : null}
+            <SignOutButton />
           </div>
         </header>
         <main className="flex-1 p-6">{children}</main>

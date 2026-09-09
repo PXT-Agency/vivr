@@ -15,6 +15,13 @@
       "when": 1788945806360,
       "tag": "0001_watery_klaw",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788975484744,
+      "tag": "0002_odd_sheva_callister",
+      "breakpoints": true
     }
   ]
 }

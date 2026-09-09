@@ -12,33 +12,62 @@ import {
   requirePlatformAdminContext,
 } from "./index";
 
-const authMock = vi.hoisted(() => vi.fn());
-const currentUserMock = vi.hoisted(() => vi.fn());
+const getSessionMock = vi.hoisted(() => vi.fn());
+const createDatabaseMock = vi.hoisted(() => vi.fn());
 
-vi.mock("@clerk/nextjs/server", () => ({
-  auth: authMock,
-  currentUser: currentUserMock,
+vi.mock("@/lib/auth", () => ({
+  getAuth: () => ({
+    api: {
+      getSession: getSessionMock,
+    },
+  }),
 }));
 
-type AuthState = {
-  isAuthenticated: boolean;
-  userId: string | null;
-  sessionId: string | null;
-  orgId: string | null;
-  orgRole: string | null;
-  orgSlug: string | null;
-};
+vi.mock("@/server/db", () => ({
+  createDatabase: createDatabaseMock,
+}));
 
-function mockAuth(state: Partial<AuthState>) {
-  authMock.mockResolvedValue({
-    isAuthenticated: false,
-    userId: null,
-    sessionId: null,
-    orgId: null,
-    orgRole: null,
-    orgSlug: null,
-    ...state,
+vi.mock("next/headers", () => ({
+  headers: vi.fn().mockResolvedValue(new Headers()),
+}));
+
+function mockDbSelect(rows: unknown[]) {
+  const limitMock = vi.fn().mockResolvedValue(rows);
+  const whereMock = vi.fn().mockReturnValue({ limit: limitMock });
+  const innerJoinMock = vi.fn().mockReturnValue({ where: whereMock });
+  const fromMock = vi.fn().mockReturnValue({ innerJoin: innerJoinMock });
+  const selectMock = vi.fn().mockReturnValue({ from: fromMock });
+  const endMock = vi.fn().mockResolvedValue(undefined);
+
+  createDatabaseMock.mockReturnValue({
+    client: { end: endMock },
+    db: { select: selectMock },
   });
+
+  return { selectMock, endMock };
+}
+
+function mockSession(
+  overrides: {
+    session?: Record<string, unknown> | null;
+    user?: Record<string, unknown>;
+    membershipRows?: unknown[];
+  } = {},
+) {
+  const user = overrides.user ?? { id: "user_test", email: "test@example.com", name: "Test User", platformRole: "user" };
+
+  if (overrides.session === null) {
+    getSessionMock.mockResolvedValue(null);
+  } else {
+    const session = overrides.session ?? { id: "sess_test", activeOrganizationId: null };
+    getSessionMock.mockResolvedValue({ session, user });
+
+    if (session.activeOrganizationId && overrides.membershipRows !== undefined) {
+      mockDbSelect(overrides.membershipRows);
+    } else if (!session.activeOrganizationId) {
+      mockDbSelect([]);
+    }
+  }
 }
 
 const USER_ID = "user_test_123";
@@ -46,25 +75,29 @@ const ORG_A = "org_test_aaa";
 const SESSION_ID = "sess_test_123";
 
 beforeEach(() => {
-  authMock.mockReset();
-  currentUserMock.mockReset();
+  getSessionMock.mockReset();
+  createDatabaseMock.mockReset();
 });
 
 describe("getAuthContext", () => {
   it("returns null for unauthenticated requests", async () => {
-    mockAuth({ isAuthenticated: false });
+    mockSession({ session: null });
 
     expect(await getAuthContext()).toBeNull();
   });
 
   it("returns user and organization context when authenticated with an active organization", async () => {
-    mockAuth({
-      isAuthenticated: true,
-      userId: USER_ID,
-      sessionId: SESSION_ID,
-      orgId: ORG_A,
-      orgRole: "org:admin",
-      orgSlug: "org-a",
+    mockSession({
+      session: { id: SESSION_ID, activeOrganizationId: ORG_A },
+      user: { id: USER_ID, email: "jane@example.com", name: "Jane", platformRole: "user" },
+      membershipRows: [
+        {
+          organizationId: ORG_A,
+          organizationSlug: "org-a",
+          role: "org:admin",
+          memberId: "mem_1",
+        },
+      ],
     });
 
     const context = await getAuthContext();
@@ -77,13 +110,9 @@ describe("getAuthContext", () => {
   });
 
   it("keeps organization fields null when no organization is active", async () => {
-    mockAuth({
-      isAuthenticated: true,
-      userId: USER_ID,
-      sessionId: SESSION_ID,
-      orgId: null,
-      orgRole: null,
-      orgSlug: null,
+    mockSession({
+      session: { id: SESSION_ID, activeOrganizationId: null },
+      user: { id: USER_ID, email: "jane@example.com", name: "Jane", platformRole: "user" },
     });
 
     const context = await getAuthContext();
@@ -94,12 +123,17 @@ describe("getAuthContext", () => {
   });
 
   it("ignores non-application organization roles", async () => {
-    mockAuth({
-      isAuthenticated: true,
-      userId: USER_ID,
-      orgId: ORG_A,
-      orgRole: "org:basic",
-      orgSlug: "org-a",
+    mockSession({
+      session: { id: SESSION_ID, activeOrganizationId: ORG_A },
+      user: { id: USER_ID, email: "jane@example.com", name: "Jane", platformRole: "user" },
+      membershipRows: [
+        {
+          organizationId: ORG_A,
+          organizationSlug: "org-a",
+          role: "org:basic",
+          memberId: "mem_1",
+        },
+      ],
     });
 
     const context = await getAuthContext();
@@ -107,11 +141,47 @@ describe("getAuthContext", () => {
     expect(context?.organizationId).toBe(ORG_A);
     expect(context?.organizationRole).toBeNull();
   });
+
+  it("sets null org when session has activeOrganizationId but no membership row", async () => {
+    mockSession({
+      session: { id: SESSION_ID, activeOrganizationId: ORG_A },
+      user: { id: USER_ID, email: "jane@example.com", name: "Jane", platformRole: "user" },
+      membershipRows: [],
+    });
+
+    const context = await getAuthContext();
+
+    expect(context?.userId).toBe(USER_ID);
+    expect(context?.organizationId).toBeNull();
+    expect(context?.organizationRole).toBeNull();
+  });
+
+  it("reads platformRole from the user object", async () => {
+    mockSession({
+      session: { id: SESSION_ID, activeOrganizationId: null },
+      user: { id: USER_ID, email: "admin@example.com", name: "Admin", platformRole: "platform_admin" },
+    });
+
+    const context = await getAuthContext();
+
+    expect(context?.platformRole).toBe("platform_admin");
+  });
+
+  it("defaults platformRole to user when value is unrecognized", async () => {
+    mockSession({
+      session: { id: SESSION_ID, activeOrganizationId: null },
+      user: { id: USER_ID, email: "x@example.com", name: "X", platformRole: "unknown_role" },
+    });
+
+    const context = await getAuthContext();
+
+    expect(context?.platformRole).toBe("user");
+  });
 });
 
 describe("requireAuth", () => {
   it("rejects unauthenticated requests", async () => {
-    mockAuth({ isAuthenticated: false });
+    mockSession({ session: null });
 
     await expect(requireAuth()).rejects.toMatchObject({
       name: "AuthContextError",
@@ -119,20 +189,13 @@ describe("requireAuth", () => {
     });
   });
 
-  it("rejects when Clerk reports a session without a user id", async () => {
-    mockAuth({ isAuthenticated: true, userId: null });
-
-    await expect(requireAuth()).rejects.toBeInstanceOf(AuthContextError);
-  });
-
   it("returns the auth context when authenticated", async () => {
-    mockAuth({
-      isAuthenticated: true,
-      userId: USER_ID,
-      sessionId: SESSION_ID,
-      orgId: ORG_A,
-      orgRole: "org:member",
-      orgSlug: "org-a",
+    mockSession({
+      session: { id: SESSION_ID, activeOrganizationId: ORG_A },
+      user: { id: USER_ID, email: "jane@example.com", name: "Jane", platformRole: "user" },
+      membershipRows: [
+        { organizationId: ORG_A, organizationSlug: "org-a", role: "org:member", memberId: "mem_1" },
+      ],
     });
 
     const context = await requireAuth();
@@ -144,7 +207,7 @@ describe("requireAuth", () => {
 
 describe("requireOrganization", () => {
   it("rejects unauthenticated requests", async () => {
-    mockAuth({ isAuthenticated: false });
+    mockSession({ session: null });
 
     await expect(requireOrganization()).rejects.toMatchObject({
       code: "unauthenticated",
@@ -152,7 +215,10 @@ describe("requireOrganization", () => {
   });
 
   it("rejects authenticated requests without an active organization", async () => {
-    mockAuth({ isAuthenticated: true, userId: USER_ID });
+    mockSession({
+      session: { id: SESSION_ID, activeOrganizationId: null },
+      user: { id: USER_ID, email: "jane@example.com", name: "Jane", platformRole: "user" },
+    });
 
     await expect(requireOrganization()).rejects.toMatchObject({
       code: "missing_organization",
@@ -160,12 +226,12 @@ describe("requireOrganization", () => {
   });
 
   it("rejects when the active organization has no usable role", async () => {
-    mockAuth({
-      isAuthenticated: true,
-      userId: USER_ID,
-      orgId: ORG_A,
-      orgRole: "org:unknown",
-      orgSlug: "org-a",
+    mockSession({
+      session: { id: SESSION_ID, activeOrganizationId: ORG_A },
+      user: { id: USER_ID, email: "jane@example.com", name: "Jane", platformRole: "user" },
+      membershipRows: [
+        { organizationId: ORG_A, organizationSlug: "org-a", role: "org:unknown", memberId: "mem_1" },
+      ],
     });
 
     await expect(requireOrganization()).rejects.toMatchObject({
@@ -174,12 +240,12 @@ describe("requireOrganization", () => {
   });
 
   it("returns a typed organization id when an organization is active", async () => {
-    mockAuth({
-      isAuthenticated: true,
-      userId: USER_ID,
-      orgId: ORG_A,
-      orgRole: "org:editor",
-      orgSlug: "org-a",
+    mockSession({
+      session: { id: SESSION_ID, activeOrganizationId: ORG_A },
+      user: { id: USER_ID, email: "jane@example.com", name: "Jane", platformRole: "user" },
+      membershipRows: [
+        { organizationId: ORG_A, organizationSlug: "org-a", role: "org:editor", memberId: "mem_1" },
+      ],
     });
 
     const organization = await requireOrganization();
@@ -192,12 +258,12 @@ describe("requireOrganization", () => {
 
 describe("requireOrganizationRole", () => {
   it("allows a member with a matching role", async () => {
-    mockAuth({
-      isAuthenticated: true,
-      userId: USER_ID,
-      orgId: ORG_A,
-      orgRole: "org:admin",
-      orgSlug: "org-a",
+    mockSession({
+      session: { id: SESSION_ID, activeOrganizationId: ORG_A },
+      user: { id: USER_ID, email: "jane@example.com", name: "Jane", platformRole: "user" },
+      membershipRows: [
+        { organizationId: ORG_A, organizationSlug: "org-a", role: "org:admin", memberId: "mem_1" },
+      ],
     });
 
     const organization = await requireOrganizationRole(["org:admin", "org:editor"]);
@@ -206,12 +272,12 @@ describe("requireOrganizationRole", () => {
   });
 
   it("rejects a role that is not in the allowed list", async () => {
-    mockAuth({
-      isAuthenticated: true,
-      userId: USER_ID,
-      orgId: ORG_A,
-      orgRole: "org:member",
-      orgSlug: "org-a",
+    mockSession({
+      session: { id: SESSION_ID, activeOrganizationId: ORG_A },
+      user: { id: USER_ID, email: "jane@example.com", name: "Jane", platformRole: "user" },
+      membershipRows: [
+        { organizationId: ORG_A, organizationSlug: "org-a", role: "org:member", memberId: "mem_1" },
+      ],
     });
 
     await expect(requireOrganizationRole(["org:admin"])).rejects.toMatchObject({
@@ -220,7 +286,7 @@ describe("requireOrganizationRole", () => {
   });
 
   it("rejects unauthenticated requests before role evaluation", async () => {
-    mockAuth({ isAuthenticated: false });
+    mockSession({ session: null });
 
     await expect(requireOrganizationRole(["org:admin"])).rejects.toMatchObject({
       code: "unauthenticated",
@@ -228,37 +294,46 @@ describe("requireOrganizationRole", () => {
   });
 
   it("rejects requests without an active organization before role evaluation", async () => {
-    mockAuth({ isAuthenticated: true, userId: USER_ID });
+    mockSession({
+      session: { id: SESSION_ID, activeOrganizationId: null },
+      user: { id: USER_ID, email: "jane@example.com", name: "Jane", platformRole: "user" },
+    });
 
     await expect(requireOrganizationRole(["org:admin"])).rejects.toMatchObject({
       code: "missing_organization",
     });
   });
+
+  it("handles comma-separated multi-role strings", async () => {
+    mockSession({
+      session: { id: SESSION_ID, activeOrganizationId: ORG_A },
+      user: { id: USER_ID, email: "jane@example.com", name: "Jane", platformRole: "user" },
+      membershipRows: [
+        { organizationId: ORG_A, organizationSlug: "org-a", role: "org:editor,org:analyst", memberId: "mem_1" },
+      ],
+    });
+
+    const organization = await requireOrganizationRole(["org:editor"]);
+
+    expect(organization.organizationId).toBe(ORG_A);
+    expect(organization.organizationRole).toBe("org:editor");
+  });
 });
 
 describe("getCurrentActor", () => {
   it("returns null for unauthenticated requests", async () => {
-    mockAuth({ isAuthenticated: false });
-    currentUserMock.mockResolvedValue(null);
+    mockSession({ session: null });
 
     expect(await getCurrentActor()).toBeNull();
   });
 
-  it("combines the Clerk user with the active organization", async () => {
-    mockAuth({
-      isAuthenticated: true,
-      userId: USER_ID,
-      sessionId: SESSION_ID,
-      orgId: ORG_A,
-      orgRole: "org:operator",
-      orgSlug: "org-a",
-    });
-    currentUserMock.mockResolvedValue({
-      id: USER_ID,
-      fullName: "Jane Operator",
-      username: "jane",
-      primaryEmailAddressId: "email_1",
-      emailAddresses: [{ id: "email_1", emailAddress: "jane@example.com" }],
+  it("combines the Better Auth user with the active organization", async () => {
+    mockSession({
+      session: { id: SESSION_ID, activeOrganizationId: ORG_A },
+      user: { id: USER_ID, email: "jane@example.com", name: "Jane Operator", platformRole: "user" },
+      membershipRows: [
+        { organizationId: ORG_A, organizationSlug: "org-a", role: "org:operator", memberId: "mem_1" },
+      ],
     });
 
     const actor = await getCurrentActor();
@@ -271,27 +346,10 @@ describe("getCurrentActor", () => {
     expect(actor?.name).toBe("Jane Operator");
   });
 
-  it("returns null when the session is valid but the user cannot be loaded", async () => {
-    mockAuth({
-      isAuthenticated: true,
-      userId: USER_ID,
-      orgId: ORG_A,
-      orgRole: "org:member",
-      orgSlug: "org-a",
-    });
-    currentUserMock.mockResolvedValue(null);
-
-    expect(await getCurrentActor()).toBeNull();
-  });
-
   it("keeps organization fields null when no organization is active", async () => {
-    mockAuth({ isAuthenticated: true, userId: USER_ID, sessionId: SESSION_ID });
-    currentUserMock.mockResolvedValue({
-      id: USER_ID,
-      fullName: "Jane Operator",
-      username: "jane",
-      primaryEmailAddressId: "email_1",
-      emailAddresses: [{ id: "email_1", emailAddress: "jane@example.com" }],
+    mockSession({
+      session: { id: SESSION_ID, activeOrganizationId: null },
+      user: { id: USER_ID, email: "jane@example.com", name: "Jane", platformRole: "user" },
     });
 
     const actor = await getCurrentActor();
@@ -304,28 +362,20 @@ describe("getCurrentActor", () => {
 
 describe("requirePlatformAdmin", () => {
   it("rejects unauthenticated requests", async () => {
-    mockAuth({ isAuthenticated: false });
-    currentUserMock.mockResolvedValue(null);
+    mockSession({ session: null });
 
     await expect(requirePlatformAdmin()).rejects.toMatchObject({
       code: "unauthenticated",
     });
   });
 
-  it("rejects authenticated users without the platform-admin metadata flag", async () => {
-    mockAuth({ isAuthenticated: true, userId: USER_ID, orgId: ORG_A, orgRole: "org:admin", orgSlug: "org-a" });
-    currentUserMock.mockResolvedValue({ id: USER_ID, publicMetadata: {} });
-
-    await expect(requirePlatformAdmin()).rejects.toMatchObject({
-      code: "not_platform_admin",
-    });
-  });
-
-  it("rejects flag values that are not the strict boolean true", async () => {
-    mockAuth({ isAuthenticated: true, userId: USER_ID });
-    currentUserMock.mockResolvedValue({
-      id: USER_ID,
-      publicMetadata: { platformAdmin: "true" },
+  it("rejects authenticated users without platform_admin role", async () => {
+    mockSession({
+      session: { id: SESSION_ID, activeOrganizationId: ORG_A },
+      user: { id: USER_ID, email: "jane@example.com", name: "Jane", platformRole: "user" },
+      membershipRows: [
+        { organizationId: ORG_A, organizationSlug: "org-a", role: "org:admin", memberId: "mem_1" },
+      ],
     });
 
     await expect(requirePlatformAdmin()).rejects.toMatchObject({
@@ -333,11 +383,27 @@ describe("requirePlatformAdmin", () => {
     });
   });
 
-  it("returns the user id when the platform-admin flag is set", async () => {
-    mockAuth({ isAuthenticated: true, userId: USER_ID, orgId: ORG_A, orgRole: "org:admin", orgSlug: "org-a" });
-    currentUserMock.mockResolvedValue({
-      id: USER_ID,
-      publicMetadata: { platformAdmin: true },
+  it("rejects non-string platformRole values", async () => {
+    mockSession({
+      session: { id: SESSION_ID, activeOrganizationId: ORG_A },
+      user: { id: USER_ID, email: "jane@example.com", name: "Jane", platformRole: 42 },
+      membershipRows: [
+        { organizationId: ORG_A, organizationSlug: "org-a", role: "org:admin", memberId: "mem_1" },
+      ],
+    });
+
+    await expect(requirePlatformAdmin()).rejects.toMatchObject({
+      code: "not_platform_admin",
+    });
+  });
+
+  it("returns the user id when the platform_admin role is set", async () => {
+    mockSession({
+      session: { id: SESSION_ID, activeOrganizationId: ORG_A },
+      user: { id: USER_ID, email: "admin@example.com", name: "Admin", platformRole: "platform_admin" },
+      membershipRows: [
+        { organizationId: ORG_A, organizationSlug: "org-a", role: "org:admin", memberId: "mem_1" },
+      ],
     });
 
     await expect(requirePlatformAdmin()).resolves.toBe(USER_ID);
@@ -345,11 +411,13 @@ describe("requirePlatformAdmin", () => {
 });
 
 describe("requirePlatformAdminContext", () => {
-  it("requires the platform-admin flag and an active organization", async () => {
-    mockAuth({ isAuthenticated: true, userId: USER_ID, orgId: ORG_A, orgRole: "org:admin", orgSlug: "org-a" });
-    currentUserMock.mockResolvedValue({
-      id: USER_ID,
-      publicMetadata: { platformAdmin: true },
+  it("requires the platform_admin role and an active organization", async () => {
+    mockSession({
+      session: { id: SESSION_ID, activeOrganizationId: ORG_A },
+      user: { id: USER_ID, email: "admin@example.com", name: "Admin", platformRole: "platform_admin" },
+      membershipRows: [
+        { organizationId: ORG_A, organizationSlug: "org-a", role: "org:admin", memberId: "mem_1" },
+      ],
     });
 
     const context = await requirePlatformAdminContext();
@@ -359,9 +427,14 @@ describe("requirePlatformAdminContext", () => {
     expect(context.organizationSlug).toBe("org-a");
   });
 
-  it("rejects when the platform-admin flag is missing even with an org", async () => {
-    mockAuth({ isAuthenticated: true, userId: USER_ID, orgId: ORG_A, orgRole: "org:admin", orgSlug: "org-a" });
-    currentUserMock.mockResolvedValue({ id: USER_ID, publicMetadata: {} });
+  it("rejects when the platform_admin role is missing even with an org", async () => {
+    mockSession({
+      session: { id: SESSION_ID, activeOrganizationId: ORG_A },
+      user: { id: USER_ID, email: "jane@example.com", name: "Jane", platformRole: "user" },
+      membershipRows: [
+        { organizationId: ORG_A, organizationSlug: "org-a", role: "org:admin", memberId: "mem_1" },
+      ],
+    });
 
     await expect(requirePlatformAdminContext()).rejects.toMatchObject({
       code: "not_platform_admin",
@@ -369,10 +442,9 @@ describe("requirePlatformAdminContext", () => {
   });
 
   it("rejects when the platform admin has no active organization", async () => {
-    mockAuth({ isAuthenticated: true, userId: USER_ID });
-    currentUserMock.mockResolvedValue({
-      id: USER_ID,
-      publicMetadata: { platformAdmin: true },
+    mockSession({
+      session: { id: SESSION_ID, activeOrganizationId: null },
+      user: { id: USER_ID, email: "admin@example.com", name: "Admin", platformRole: "platform_admin" },
     });
 
     await expect(requirePlatformAdminContext()).rejects.toMatchObject({
@@ -383,30 +455,33 @@ describe("requirePlatformAdminContext", () => {
 
 describe("isCurrentUserPlatformAdmin", () => {
   it("returns false when there is no signed-in user", async () => {
-    currentUserMock.mockResolvedValue(null);
+    mockSession({ session: null });
 
     expect(await isCurrentUserPlatformAdmin()).toBe(false);
   });
 
-  it("returns true when the platform-admin flag is set", async () => {
-    currentUserMock.mockResolvedValue({
-      id: USER_ID,
-      publicMetadata: { platformAdmin: true },
+  it("returns true when the platform_admin role is set", async () => {
+    mockSession({
+      session: { id: SESSION_ID, activeOrganizationId: null },
+      user: { id: USER_ID, email: "admin@example.com", name: "Admin", platformRole: "platform_admin" },
     });
 
     expect(await isCurrentUserPlatformAdmin()).toBe(true);
   });
 
-  it("returns false when the flag is absent", async () => {
-    currentUserMock.mockResolvedValue({ id: USER_ID, publicMetadata: {} });
+  it("returns false when the role is absent", async () => {
+    mockSession({
+      session: { id: SESSION_ID, activeOrganizationId: null },
+      user: { id: USER_ID, email: "jane@example.com", name: "Jane", platformRole: "user" },
+    });
 
     expect(await isCurrentUserPlatformAdmin()).toBe(false);
   });
 
-  it("returns false for flag values other than the strict boolean true", async () => {
-    currentUserMock.mockResolvedValue({
-      id: USER_ID,
-      publicMetadata: { platformAdmin: "true" },
+  it("returns false for non-string platformRole values", async () => {
+    mockSession({
+      session: { id: SESSION_ID, activeOrganizationId: null },
+      user: { id: USER_ID, email: "jane@example.com", name: "Jane", platformRole: true },
     });
 
     expect(await isCurrentUserPlatformAdmin()).toBe(false);

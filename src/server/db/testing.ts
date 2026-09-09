@@ -3,6 +3,7 @@ import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
 
 import * as schema from "./schema";
+import * as relations from "./schema/relations";
 import type { Db } from ".";
 
 const TEST_DB_NAME = "vivr_test";
@@ -41,7 +42,7 @@ export interface TestDatabase {
  */
 export function connectTestDatabase(): TestDatabase {
   const client = postgres(loadTestDatabaseUrl(), { max: 1 });
-  const db = drizzle(client, { schema });
+  const db = drizzle(client, { schema: { ...schema, ...relations } });
   return {
     client,
     db,
@@ -52,7 +53,8 @@ export function connectTestDatabase(): TestDatabase {
 /**
  * Truncate all application tables between tests so each case starts clean.
  * Runs in a single round trip on the raw client (never exposed to production
- * code paths).
+ * code paths). Includes the Better Auth tables (user, session, account,
+ * verification, member, invitation).
  */
 export async function resetDatabase({ client }: TestDatabase): Promise<void> {
   await client`TRUNCATE TABLE
@@ -62,6 +64,12 @@ export async function resetDatabase({ client }: TestDatabase): Promise<void> {
     vivr_versions,
     vivrs,
     actors,
-    organizations
+    organizations,
+    invitation,
+    member,
+    verification,
+    account,
+    session,
+    "user"
   RESTART IDENTITY CASCADE`;
 }

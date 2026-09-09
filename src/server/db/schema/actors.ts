@@ -5,12 +5,12 @@ import { organizations } from "./organizations";
 /**
  * Application-level actors: a user acting within an organization context.
  *
- * `user_id` is the Clerk user ID; `organization_id` is the Clerk organization
- * ID (tenant boundary). A user is a distinct actor for each organization they
- * belong to. Used by audit-oriented tables (import batches) to record who
- * performed an operation. Clerk remains the source of truth for identity; this
- * table only stores the surface needed for the tenant-scoped application
- * record.
+ * `user_id` is the Better Auth user ID; `organization_id` is the canonical
+ * organization (tenant boundary). A user is a distinct actor for each
+ * organization they belong to. Used by audit-oriented tables (import
+ * batches) to record who performed an operation. Better Auth remains the
+ * source of truth for identity; this table only stores the surface needed
+ * for the tenant-scoped application record.
  */
 export const actors = pgTable(
   "actors",

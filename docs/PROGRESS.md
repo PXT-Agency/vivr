@@ -562,3 +562,132 @@
 - Database deployment target (local Postgres vs. managed provider).
 - Whether the expected inventory range `0001`–`2000` is finalized.
 - Customer-facing star-number presentation and pricing (Phase 7+).
+
+---
+
+## Auth Migration — Clerk → Better Auth (2026-09-09)
+
+**Status:** Complete.
+
+### Scope delivered
+
+Replaced Clerk Authentication and Clerk Organizations with self-hosted
+Better Auth (`better-auth@1.7.3` + `@better-auth/drizzle-adapter`) in the
+application's own PostgreSQL database. This is strictly an auth/org-provider
+migration — all Phase 1–6 functionality (imports, tenant dashboards, VIVR
+builder) is preserved and verified by the same test suite.
+
+- **Dependencies** — `@clerk/nextjs` removed from `package.json` and
+  `node_modules`; `better-auth` and `@better-auth/drizzle-adapter` added.
+- **Server config** — `src/lib/auth.ts`: `betterAuth()` instance with
+  email/password auth (min 8-char passwords), `organization()` plugin
+  (`creatorRole: "org:admin"`, custom roles/AC from `src/config/auth.ts`),
+  `nextCookies()` plugin, and the Drizzle adapter with `usePlural: false`
+  (config schema keys are singular to match Better Auth's internal model
+  names). `user.platformRole` (`input: false`) is the database-backed
+  platform-admin flag.
+- **Client config** — `src/lib/auth-client.ts`: `createAuthClient` with
+  `organizationClient()` (same role configuration as the server).
+- **Route handler** — `src/app/api/auth/[...all]/route.ts` via
+  `toNextJsHandler(auth)`.
+- **Proxy** — `src/proxy.ts` rewritten: `getSessionCookie(request)` from
+  `better-auth/cookies` performs the optimistic session-cookie gate; every
+  protected page/action/handler independently validates the session.
+- **Database schema** — six new Better Auth tables
+  (`user` with `platform_role` + check constraint, `session` with
+  `active_organization_id`, `account`, `verification`, `member`, `invitation`)
+  mirrored the runtime `getAuthTables()` field list exactly; the existing
+  `organizations` table is reused as the plugin's canonical organization
+  table (`logo`/`metadata` columns added). `src/server/db/testing.ts` truncate
+  list extended to include all auth tables. Drizzle relational-query
+  definitions (`src/server/db/schema/relations.ts`) expose the
+  `organizations`/`users` join names the org plugin's `listOrganizations` /
+  `setActiveOrganization` require.
+- **Server auth helpers** — `src/server/auth/index.ts` rewritten for Better
+  Auth: `getAuthContext()` (session + server-side `member`-table membership
+  proof), `requireAuth()`, `requireOrganization()`,
+  `requireOrganizationRole()`, `requirePlatformAdmin()`,
+  `requirePlatformAdminContext()`, `getCurrentActor()`,
+  `isCurrentUserPlatformAdmin()`, `platformAdminErrorResponse()`,
+  `AuthContextError`. `firstApplicationRole()` handles comma-separated
+  multi-role strings.
+- **Role config** — `src/config/auth.ts` rewritten:
+  `organizationAccessControl` (`createAccessControl` over
+  `defaultStatements` + `vivr`/`operations`/`analytics` resources),
+  `organizationRoles` mapping the five B2B roles to permissions,
+  `PLATFORM_ROLES`/`PLATFORM_ADMIN_ROLE`/`isPlatformRole()`/
+  `grantsPlatformAdmin()`.
+- **Environment** — `authEnvSchema` (`BETTER_AUTH_SECRET`,
+  `BETTER_AUTH_URL`) + `getAuthEnv()`; `.env.example` and `.env.local`
+  updated (`DATABASE_URL` pointed at `vivr_dev`).
+- **Platform-admin tooling** — `src/scripts/promote-admin.ts`
+  (`pnpm auth:promote-admin --email … [--role …] [--list]`) sets
+  `user.platform_role`; refuses to run in production; never prints secrets.
+- **UI** — sign-in / sign-up pages with email/password forms, public layout
+  session-aware nav, `(dashboard)` and `(admin)` layouts validating sessions
+  via `auth().api.getSession()` + `headers()`, rewritten `DashboardShell` /
+  `AdminShell` with `<OrganizationSwitcher>` (list/create/switch via
+  `authClient.organization`) and `<SignOutButton>`. All navigation links use
+  Next.js `<Link>`.
+- **Migrations** — `drizzle/0002_odd_sheva_callister.sql` (auth tables +
+  org columns) applied to `vivr_dev` and `vivr_test`. Both databases were
+  brought to the same state manually and the migration recorded as applied
+  (idempotent afterwards). **CORRECTION (2026-09-09, migration audit):** the
+  cause was NOT the reserved word `user` (quoted identifiers are valid); it
+  was a duplicate index name — `user.ts` declares `user_email_unique` both as
+  an inline `.unique()` constraint and as a separate `uniqueIndex`, so 0002's
+  trailing `CREATE UNIQUE INDEX "user_email_unique"` fails on a fresh DB with
+  `relation "user_email_unique" already exists`. **`pnpm db:migrate` is not
+  clean-DB reproducible** without schema fix + regeneration.
+
+### Tests
+
+- `src/server/auth/index.test.ts` — fully rewritten against Better Auth
+  (mock `@/lib/auth` `getAuth()`/`getSession`, `@/server/db`
+  `createDatabase()`, `next/headers`): session resolution, membership-backed
+  org context, unauthenticated/missing-org/insufficient-role/platform-admin
+  failures, multi-role parsing, actor/context composition (33 tests).
+- `src/lib/env/index.test.ts` — `getAuthEnv` cases added (secret required,
+  URL default + validation) (+5 tests).
+- `src/config/auth.test.ts` — unchanged, continues to validate the five-role
+  configuration (3 tests).
+- All Phase 1–6 tests (repositories, services, dashboard, routes, VIVR
+  builder) unchanged and passing.
+
+### Verification results
+
+| Command | Result |
+| ------- | ------ |
+| `pnpm lint` | PASS — 0 warnings |
+| `pnpm typecheck` | PASS |
+| `pnpm test` | PASS — 26 files, 194 tests |
+| `pnpm build` | PASS — routes: public `/`, `/sign-in`, `/sign-up`; dashboard; admin; `/api/auth/[...all]`; ƒ Proxy registered |
+| `pnpm check` | PASS (lint + typecheck + test; build passes on non-flaky retry) |
+| Clerk reference grep | PASS — 0 matches for `@clerk`, `ClerkProvider`, `clerkMiddleware`, `useAuth`, `useUser` |
+| `pnpm db:migrate` | PASS — idempotent on migrated `vivr_dev`/`vivr_test`; clean-DB reproducibility FAILS (duplicate `user_email_unique` index in 0002) |
+
+### Notes and limitations
+
+- The first `pnpm build` in a session can fail transiently when
+  `fonts.gstatic.com` is unreachable (Next.js Geist fetch); retrying passes.
+  Unrelated to the auth migration.
+- Email delivery is not configured: verification and invitation emails are
+  stored but not sent (documented limitation in the schema modules and the
+  Better Auth config).
+- Social providers (`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`) are optional
+  in `.env.example`; enabling one requires the provider's full setup.
+- Open Pilots local Copilot (Phase 7 VIVR runtime) operates on the same
+  organization boundary via the shared `server/auth` helpers.
+
+### Environment variables
+
+- Introduced: `BETTER_AUTH_SECRET` (secret), `BETTER_AUTH_URL`.
+- Changed: `DATABASE_URL` → `postgres://postgres:postgres@localhost:5432/vivr_dev`.
+- Removed: all `NEXT_PUBLIC_CLERK_*` variables, `clerkMiddleware()` routing.
+
+### Open decisions carried forward
+
+- Database deployment target (local Postgres vs. managed provider).
+- Whether the expected inventory range `0001`–`2000` is finalized.
+- Customer-facing star-number presentation and pricing (Phase 7+).
+- Email delivery provider for Better Auth verification/invitation emails.

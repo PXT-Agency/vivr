@@ -2,6 +2,7 @@ import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { getDatabaseEnv } from "@/lib/env";
 import * as schema from "./schema";
+import * as rels from "./schema/relations";
 
 export type Database = ReturnType<typeof createDatabase>;
 
@@ -26,6 +27,6 @@ export function createDatabase() {
 
   return {
     client,
-    db: drizzle(client, { schema }),
+    db: drizzle(client, { schema: { ...schema, ...rels } }),
   };
 }

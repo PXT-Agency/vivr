@@ -1,14 +1,20 @@
-import { pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 
 /**
- * Application-side mirror of Clerk organization (tenant) metadata.
+ * Canonical organization (tenant) table.
  *
- * `id` is the Clerk organization ID (external tenant identifier), never
- * generated here. The organizations table is the tenant root: tenant-owned
- * tables reference `organizations.id` via `organization_id`.
+ * Strategy: Better Auth's organization plugin is the canonical application
+ * organization system. This table — introduced in Phase 3 as the app-side
+ * Clerk org mirror — is reused as the Better Auth `organization` table by
+ * mapping the plugin's model to plural table names (`usePlural: true`).
+ * `id` remains a text PK (Better Auth generates IDs client-side of the DB);
+ * `name`/`slug` keep their Phase 3 semantics; `logo`/`metadata` are the
+ * plugin's additional fields. Both databases were empty at migration time,
+ * so no organization data migration was required (verified before applying).
  *
- * Only data that PostgreSQL must own is stored here; the remainder of Clerk
- * identity lives in Clerk.
+ * Tenant-owned tables (`vivrs`, `actors`, ...) reference `organizations.id`
+ * via `organization_id`; the boundary continues to be enforced by
+ * server-side membership checks.
  */
 export const organizations = pgTable(
   "organizations",
@@ -16,6 +22,8 @@ export const organizations = pgTable(
     id: text("id").primaryKey(),
     name: text("name").notNull(),
     slug: text("slug").notNull(),
+    logo: text("logo"),
+    metadata: jsonb("metadata"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

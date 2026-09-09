@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { EnvironmentValidationError, getAppEnv, getDatabaseEnv } from "./index";
+import { EnvironmentValidationError, getAppEnv, getAuthEnv, getDatabaseEnv } from "./index";
 
 describe("getAppEnv", () => {
   it("defaults NODE_ENV and NEXT_PUBLIC_APP_URL when no env is provided", () => {
@@ -48,5 +48,42 @@ describe("getDatabaseEnv", () => {
 
   it("throws a clear error when DATABASE_URL is empty", () => {
     expect(() => getDatabaseEnv({ DATABASE_URL: "  " })).toThrow(EnvironmentValidationError);
+  });
+});
+
+describe("getAuthEnv", () => {
+  it("parses valid Better Auth environment variables", () => {
+    const env = getAuthEnv({
+      BETTER_AUTH_SECRET: "super-secret-key-at-least-32-chars-long!!",
+      BETTER_AUTH_URL: "http://localhost:3000",
+    });
+    expect(env.BETTER_AUTH_SECRET).toBe("super-secret-key-at-least-32-chars-long!!");
+    expect(env.BETTER_AUTH_URL).toBe("http://localhost:3000");
+  });
+
+  it("defaults BETTER_AUTH_URL to http://localhost:3000", () => {
+    const env = getAuthEnv({
+      BETTER_AUTH_SECRET: "valid-secret-12345678901234567890",
+    });
+    expect(env.BETTER_AUTH_URL).toBe("http://localhost:3000");
+  });
+
+  it("throws when BETTER_AUTH_SECRET is absent", () => {
+    expect(() => getAuthEnv({})).toThrow(EnvironmentValidationError);
+  });
+
+  it("throws when BETTER_AUTH_SECRET is empty", () => {
+    expect(() => getAuthEnv({ BETTER_AUTH_SECRET: "  " })).toThrow(
+      EnvironmentValidationError,
+    );
+  });
+
+  it("throws when BETTER_AUTH_URL is not a valid URL", () => {
+    expect(() =>
+      getAuthEnv({
+        BETTER_AUTH_SECRET: "valid-secret-12345678901234567890",
+        BETTER_AUTH_URL: "not-a-url",
+      }),
+    ).toThrow(EnvironmentValidationError);
   });
 });
